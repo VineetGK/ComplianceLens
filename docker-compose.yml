@@ -1,0 +1,56 @@
+name: compliancelens
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-compliancelens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-compliancelens}
+      POSTGRES_DB: ${POSTGRES_DB:-compliancelens}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  phoenix:
+    # Pin to a specific version tag for reproducible deployments.
+    image: arizephoenix/phoenix:${PHOENIX_IMAGE_TAG:-latest}
+    ports:
+      - "6006:6006"   # UI + OTLP/HTTP collector at /v1/traces
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenixdata:/data
+
+  api:
+    build:
+      context: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-compliancelens}:${POSTGRES_PASSWORD:-compliancelens}@db:5432/${POSTGRES_DB:-compliancelens}
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006/v1/traces
+      LLM_CACHE_DIR: /app/data/cache/llm
+    ports:
+      - "8000:8000"
+    volumes:
+      - appdata:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      phoenix:
+        condition: service_started
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn compliancelens.api.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  pgdata:
+  phoenixdata:
+  appdata:

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  LLM_PROVIDER: mock
+  EMBEDDING_PROVIDER: mock
+  TRACING_ENABLED: "false"
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: compliancelens
+          POSTGRES_PASSWORD: compliancelens
+          POSTGRES_DB: compliancelens
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U compliancelens"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --frozen --python 3.12
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy
+      - name: Unit tests (mock providers, no network)
+        run: uv run pytest -q
+      - name: Migrations + DB tests (pgvector)
+        env:
+          DATABASE_URL: postgresql+psycopg://compliancelens:compliancelens@localhost:5432/compliancelens
+        run: uv run pytest -q -m db
+      - name: Secret scan (no keys committed)
+        working-directory: .
+        run: |
+          if git grep -nE "nvapi-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}" -- . ':!*.md'; then
+            echo "Possible API key committed" && exit 1
+          fi

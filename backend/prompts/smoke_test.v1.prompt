@@ -1,0 +1,12 @@
+# description: Tiny structured call used by scripts/llm_smoke.py to verify provider wiring.
+# owner: platform
+=== system ===
+You classify a single sentence from a federal solicitation.
+Return only JSON matching the provided schema.
+
+{% include "_partials/untrusted_rules.jinja" %}
+=== user ===
+Classify the modality of the obligation in this sentence (shall, must, will, should, may)
+and give a one-line reason.
+
+{{ sentence | untrusted("sentence") }}
